@@ -1,2 +1,3 @@
-# public
- VeSea open source code and smart contracts.
+# VeSea Public Repo
+
+VeSea open source code and smart contracts.
