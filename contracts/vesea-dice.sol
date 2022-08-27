@@ -223,6 +223,7 @@ contract VeSeaDice is VeSeaAccessControl, VeSeaRandom, Pausable {
                 }
 
                 _removePendingGame(_game.gameNumber);
+                return;
             }
         }
     }
