@@ -61,7 +61,7 @@ contract VeSeaDice is VeSeaAccessControl, VeSeaRandom, Pausable {
     uint256 public playerCount;
     mapping(address => Player) public players;
 
-    uint256 public totalClaimableFunds;
+    uint256 private totalClaimableFunds;
     uint256 public totalRisked;
     uint256 public totalWon;
     uint256 public totalBurned;
