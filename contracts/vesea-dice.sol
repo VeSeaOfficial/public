@@ -66,7 +66,7 @@ contract VeSeaDice is VeSeaAccessControl, VeSeaRandom, Pausable {
     uint256 public totalWon;
     uint256 public totalBurned;
 
-    uint256 public gameCount = 1; // start at 1 due to pending game remove logic
+    uint256 public gameCount = 1;
     Game[] public games;
     Game[] private pendingGames;
 
