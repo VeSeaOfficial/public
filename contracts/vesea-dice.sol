@@ -14,7 +14,7 @@ contract VeSeaDice is VeSeaAccessControl, VeSeaRandom, Pausable {
     event Roll(
         uint256 indexed gameNumber,
         address indexed ownerAddress,
-        bool indexed win,
+        bool win,
         uint256 playAmount,
         uint256 winAmount,
         uint256 odds,
@@ -105,8 +105,6 @@ contract VeSeaDice is VeSeaAccessControl, VeSeaRandom, Pausable {
     // roll
     // ----------------------------------------------------------------------------
     function roll(uint256 vseaAmount, uint256 odds) external whenNotPaused {
-        processPendingGames();
-
         // odds must be 10 to 90
         require(odds >= 10, "odds must be >= 10");
         require(odds <= 90, "odds must be <= 90");
@@ -183,17 +181,21 @@ contract VeSeaDice is VeSeaAccessControl, VeSeaRandom, Pausable {
     // ----------------------------------------------------------------------------
     // Pending Games
     // ----------------------------------------------------------------------------
-    function pendingGameCount() external view returns (uint256) {
-        return pendingGames.length;
+    function pendingGameNumbers() external view returns (uint256[] memory) {
+        uint256[] memory _gameNumbers = new uint256[](pendingGames.length);
+        for (uint256 i = 0; i < pendingGames.length; i++) {
+            _gameNumbers[i] = pendingGames[i].gameNumber;
+        }
+        return _gameNumbers;
     }
 
-    function processPendingGames() public {
-        uint256[] memory gamesToRemove = new uint256[](pendingGames.length);
+    function processPendingGame(uint256 gameNumber) external {
         for (uint256 i = 0; i < pendingGames.length; i++) {
-            // only process games in prior blocks
-            if (pendingGames[i].blockNumber < block.number) {
+            if (
+                pendingGames[i].gameNumber == gameNumber &&
+                pendingGames[i].blockNumber < block.number
+            ) {
                 Game memory _game = pendingGames[i];
-                gamesToRemove[i] = pendingGames[i].gameNumber;
                 games.push(_game);
 
                 if (_game.odds > _game.roll) {
@@ -219,31 +221,22 @@ contract VeSeaDice is VeSeaAccessControl, VeSeaRandom, Pausable {
                     );
                     ERC20Burnable(vseaAddress).burn(_game.playAmount);
                 }
-            }
-        }
 
-        // remove processed games from pending list
-        for (uint256 i = 0; i < gamesToRemove.length; i++) {
-            // will be zero if a pending game is from the current block
-            if (gamesToRemove[i] > 0) {
-                _removePendingGame(gamesToRemove[i]);
+                _removePendingGame(_game.gameNumber);
             }
         }
     }
 
     function _removePendingGame(uint256 gameNumber) private {
-        uint256 gameIdx;
         for (uint256 i = 0; i < pendingGames.length; i++) {
             if (pendingGames[i].gameNumber == gameNumber) {
-                gameIdx = i;
-                break;
+                if (i < pendingGames.length - 1) {
+                    pendingGames[i] = pendingGames[pendingGames.length - 1];
+                }
+                pendingGames.pop();
+                return;
             }
         }
-
-        if (gameIdx < pendingGames.length - 1) {
-            pendingGames[gameIdx] = pendingGames[pendingGames.length - 1];
-        }
-        pendingGames.pop();
     }
 
     // ----------------------------------------------------------------------------
