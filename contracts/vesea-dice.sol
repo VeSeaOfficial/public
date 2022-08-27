@@ -222,15 +222,7 @@ contract VeSeaDice is VeSeaAccessControl, VeSeaRandom, Pausable {
                     ERC20Burnable(vseaAddress).burn(_game.playAmount);
                 }
 
-                _removePendingGame(_game.gameNumber);
-                return;
-            }
-        }
-    }
-
-    function _removePendingGame(uint256 gameNumber) private {
-        for (uint256 i = 0; i < pendingGames.length; i++) {
-            if (pendingGames[i].gameNumber == gameNumber) {
+                // remove game from pending array
                 if (i < pendingGames.length - 1) {
                     pendingGames[i] = pendingGames[pendingGames.length - 1];
                 }
