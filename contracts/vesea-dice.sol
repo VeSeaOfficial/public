@@ -8,7 +8,7 @@ import "../extensions/vesea-random.sol";
 
 pragma solidity ^0.8.4;
 
-contract DegenDice is VeSeaAccessControl, VeSeaRandom, Pausable {
+contract VeSeaDice is VeSeaAccessControl, VeSeaRandom, Pausable {
     event FundsClaimed(address indexed ownerAddress, uint256 amount);
 
     event Roll(
@@ -66,8 +66,9 @@ contract DegenDice is VeSeaAccessControl, VeSeaRandom, Pausable {
     uint256 public totalWon;
     uint256 public totalBurned;
 
-    uint256 public gameCount;
+    uint256 public gameCount = 1; // start at 1 due to pending game remove logic
     Game[] public games;
+    Game[] private pendingGames;
 
     constructor() {
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
@@ -104,6 +105,8 @@ contract DegenDice is VeSeaAccessControl, VeSeaRandom, Pausable {
     // roll
     // ----------------------------------------------------------------------------
     function roll(uint256 vseaAmount, uint256 odds) external whenNotPaused {
+        processPendingGames();
+
         // odds must be 10 to 90
         require(odds >= 10, "odds must be >= 10");
         require(odds <= 90, "odds must be <= 90");
@@ -141,8 +144,6 @@ contract DegenDice is VeSeaAccessControl, VeSeaRandom, Pausable {
         players[msg.sender].gamesPlayed += 1;
         players[msg.sender].games.push(gameCount);
 
-        totalRisked += vseaAmount;
-
         // create and update game record
         Game memory _game = Game({
             gameNumber: gameCount,
@@ -154,50 +155,95 @@ contract DegenDice is VeSeaAccessControl, VeSeaRandom, Pausable {
             winAmount: 0
         });
 
-        if (odds > _game.roll) {
-            // win
+        bool winner = odds > _game.roll;
+
+        if (winner) {
             uint256 winAmount = payout(vseaAmount, odds);
-            players[msg.sender].winAmount += winAmount;
-            players[msg.sender].winStreak += 1;
-            players[msg.sender].gamesWon += 1;
-            players[msg.sender].lastBlock = block.number;
-            players[msg.sender].availableFunds += winAmount + vseaAmount;
-
             _game.winAmount = winAmount;
-
-            totalWon += winAmount;
-
             totalClaimableFunds += winAmount + vseaAmount;
-            emit Roll(
-                gameCount,
-                msg.sender,
-                true,
-                vseaAmount,
-                winAmount,
-                odds,
-                _game.roll
-            );
-        } else {
-            // lose
-            players[msg.sender].winStreak = 0;
-
-            totalBurned += vseaAmount;
-            IERC20(vseaAddress).approve(address(this), vseaAmount);
-            ERC20Burnable(vseaAddress).burn(vseaAmount);
-
-            emit Roll(
-                gameCount,
-                msg.sender,
-                false,
-                vseaAmount,
-                0,
-                odds,
-                _game.roll
-            );
         }
 
-        games.push(_game);
+        emit Roll(
+            gameCount,
+            msg.sender,
+            winner,
+            vseaAmount,
+            _game.winAmount,
+            odds,
+            _game.roll
+        );
+
+        // update global stats
+        totalRisked += vseaAmount;
         gameCount += 1;
+
+        pendingGames.push(_game);
+    }
+
+    // ----------------------------------------------------------------------------
+    // Pending Games
+    // ----------------------------------------------------------------------------
+    function pendingGameCount() external view returns (uint256) {
+        return pendingGames.length;
+    }
+
+    function processPendingGames() public {
+        uint256[] memory gamesToRemove = new uint256[](pendingGames.length);
+        for (uint256 i = 0; i < pendingGames.length; i++) {
+            // only process games in prior blocks
+            if (pendingGames[i].blockNumber < block.number) {
+                Game memory _game = pendingGames[i];
+                gamesToRemove[i] = pendingGames[i].gameNumber;
+                games.push(_game);
+
+                if (_game.odds > _game.roll) {
+                    // win
+                    // update user stats
+                    players[_game.ownerAddress].winAmount += _game.winAmount;
+                    players[_game.ownerAddress].winStreak += 1;
+                    players[_game.ownerAddress].gamesWon += 1;
+                    players[_game.ownerAddress].availableFunds +=
+                        _game.winAmount +
+                        _game.playAmount;
+
+                    // update game stats
+                    totalWon += _game.winAmount;
+                } else {
+                    // lose
+                    players[_game.ownerAddress].winStreak = 0;
+                    totalBurned += _game.playAmount;
+
+                    IERC20(vseaAddress).approve(
+                        address(this),
+                        _game.playAmount
+                    );
+                    ERC20Burnable(vseaAddress).burn(_game.playAmount);
+                }
+            }
+        }
+
+        // remove processed games from pending list
+        for (uint256 i = 0; i < gamesToRemove.length; i++) {
+            // will be zero if a pending game is from the current block
+            if (gamesToRemove[i] > 0) {
+                _removePendingGame(gamesToRemove[i]);
+            }
+        }
+    }
+
+    function _removePendingGame(uint256 gameNumber) private {
+        uint256 gameIdx;
+        for (uint256 i = 0; i < pendingGames.length; i++) {
+            if (pendingGames[i].gameNumber == gameNumber) {
+                gameIdx = i;
+                break;
+            }
+        }
+
+        if (gameIdx < pendingGames.length - 1) {
+            pendingGames[gameIdx] = pendingGames[pendingGames.length - 1];
+        }
+        pendingGames.pop();
     }
 
     // ----------------------------------------------------------------------------
