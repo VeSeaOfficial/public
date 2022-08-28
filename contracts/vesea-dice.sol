@@ -66,7 +66,7 @@ contract VeSeaDice is VeSeaAccessControl, VeSeaRandom, Pausable {
     uint256 public totalWon;
     uint256 public totalBurned;
 
-    uint256 public gameCount = 1;
+    uint256 public gameCount;
     Game[] public games;
     Game[] private pendingGames;
 
@@ -108,12 +108,6 @@ contract VeSeaDice is VeSeaAccessControl, VeSeaRandom, Pausable {
         // odds must be 10 to 90
         require(odds >= 10, "odds must be >= 10");
         require(odds <= 90, "odds must be <= 90");
-        // address(this) must have enough vsea for win
-        require(
-            IERC20(vseaAddress).balanceOf(address(this)) >=
-                payout(vseaAmount, odds) + totalClaimableFunds,
-            "contract funds low"
-        );
         // must have vsea and be approved
         require(
             IERC20(vseaAddress).balanceOf(msg.sender) >= vseaAmount,
@@ -127,6 +121,13 @@ contract VeSeaDice is VeSeaAccessControl, VeSeaRandom, Pausable {
         // cannot be more than max amount
         require(vseaAmount <= maxPlayAmount, "more than max amount");
         require(vseaAmount >= minPlayAmount, "less than min amount");
+
+        // address(this) must have enough vsea for win
+        require(
+            IERC20(vseaAddress).balanceOf(address(this)) >=
+                payout(vseaAmount, odds) + totalClaimableFunds,
+            "contract funds low"
+        );
 
         // transfer vsea to contract
         IERC20(vseaAddress).transferFrom(msg.sender, address(this), vseaAmount);
@@ -364,11 +365,7 @@ contract VeSeaDice is VeSeaAccessControl, VeSeaRandom, Pausable {
         minPlayAmount = amount;
     }
 
-    function withdrawVSea(uint256 amount)
-        external
-        onlyRole(ADMIN_ROLE)
-        whenNotPaused
-    {
+    function withdrawVSea(uint256 amount) external onlyRole(ADMIN_ROLE) {
         IERC20(vseaAddress).transfer(msg.sender, amount);
     }
 }
