@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/security/Pausable.sol";
 
 pragma solidity ^0.8.4;
 
-contract VeSeaDice is Pausable {
+contract VeSeaDice is AccessControl, Pausable {
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
 
     event FundsClaimed(address indexed ownerAddress, uint256 amount);
