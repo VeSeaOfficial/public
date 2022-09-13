@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: MIT
+import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import "@openzeppelin/contracts/security/Pausable.sol";
 
-import "../extensions/vesea-access-control.sol";
-import "../extensions/vesea-random.sol";
-
 pragma solidity ^0.8.4;
 
-contract VeSeaDice is VeSeaAccessControl, VeSeaRandom, Pausable {
+contract VeSeaDice is Pausable {
+    bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
+
     event FundsClaimed(address indexed ownerAddress, uint256 amount);
+    event RandomNumber(uint256 number);
 
     event Roll(
         uint256 indexed gameNumber,
@@ -53,7 +54,8 @@ contract VeSeaDice is VeSeaAccessControl, VeSeaRandom, Pausable {
         uint256 totalBurned;
     }
 
-    address public vseaAddress;
+    uint256 public burnRatio;
+    uint256 public houseEdge;
     uint256 public maxPlayAmount;
     uint256 public minPlayAmount;
 
@@ -69,6 +71,8 @@ contract VeSeaDice is VeSeaAccessControl, VeSeaRandom, Pausable {
     uint256 public gameCount;
     Game[] public games;
     Game[] private pendingGames;
+
+    address public vseaAddress;
 
     constructor() {
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
@@ -214,13 +218,12 @@ contract VeSeaDice is VeSeaAccessControl, VeSeaRandom, Pausable {
                 } else {
                     // lose
                     players[_game.ownerAddress].winStreak = 0;
-                    totalBurned += _game.playAmount;
 
-                    IERC20(vseaAddress).approve(
-                        address(this),
-                        _game.playAmount
-                    );
-                    ERC20Burnable(vseaAddress).burn(_game.playAmount);
+                    uint256 burnAmount = (_game.playAmount * burnRatio) / 10000;
+                    totalBurned += burnAmount;
+
+                    IERC20(vseaAddress).approve(address(this), amount);
+                    ERC20Burnable(vseaAddress).burn(amount);
                 }
 
                 // remove game from pending array
@@ -251,14 +254,14 @@ contract VeSeaDice is VeSeaAccessControl, VeSeaRandom, Pausable {
 
     function payout(uint256 vseaAmount, uint256 odds)
         public
-        pure
+        view
         returns (uint256)
     {
         uint256 unfavorable = 10000 - (odds * 100);
         uint256 payoutOdds = unfavorable / odds;
         uint256 grossPayout = (vseaAmount * payoutOdds) / 100;
-        // 1% fee
-        return (grossPayout * 99) / 100;
+        // deduct house edge
+        return (grossPayout * (10000 - houseEdge)) / 10000;
     }
 
     function recentGames(uint256 count) public view returns (Game[] memory) {
@@ -291,57 +294,6 @@ contract VeSeaDice is VeSeaAccessControl, VeSeaRandom, Pausable {
         return playerAddresses;
     }
 
-    function getTopPlayers(uint256 count)
-        public
-        view
-        returns (Player[] memory)
-    {
-        Player[] memory results = new Player[](count);
-        for (uint256 i = 0; i < playerCount; i++) {
-            for (uint256 j = 0; j < count; j++) {
-                if (
-                    players[playerAddresses[i]].totalAmountPlayed >
-                    results[j].totalAmountPlayed
-                ) {
-                    // drop players down one slot
-                    for (uint256 k = count; k > j; k--) {
-                        results[k] = results[k - 1];
-                    }
-
-                    // update to new player
-                    results[j] = players[playerAddresses[i]];
-                    break;
-                }
-            }
-        }
-        return results;
-    }
-
-    function getTopWinners(uint256 count)
-        public
-        view
-        returns (Player[] memory)
-    {
-        Player[] memory results = new Player[](count);
-        for (uint256 i = 0; i < playerCount; i++) {
-            for (uint256 j = 0; j < count; j++) {
-                if (
-                    players[playerAddresses[i]].winAmount > results[j].winAmount
-                ) {
-                    // drop players down one slot
-                    for (uint256 k = count; k > j; k--) {
-                        results[k] = results[k - 1];
-                    }
-
-                    // update to new player
-                    results[j] = players[playerAddresses[i]];
-                    break;
-                }
-            }
-        }
-        return results;
-    }
-
     // ----------------------------------------------------------------------------
     // Admin
     // ----------------------------------------------------------------------------
@@ -353,8 +305,15 @@ contract VeSeaDice is VeSeaAccessControl, VeSeaRandom, Pausable {
         _unpause();
     }
 
-    function setVSeaAddress(address _vseaAddress) public onlyRole(ADMIN_ROLE) {
-        vseaAddress = _vseaAddress;
+    function setBurnRatio(uint256 ratio) public onlyRole(ADMIN_ROLE) {
+        burnRatio = ratio;
+    }
+
+    function setHouseEdge(uint256 houseEdgePercent)
+        public
+        onlyRole(ADMIN_ROLE)
+    {
+        houseEdge = houseEdgePercent;
     }
 
     function setMaxPlayAmount(uint256 amount) public onlyRole(ADMIN_ROLE) {
@@ -368,4 +327,44 @@ contract VeSeaDice is VeSeaAccessControl, VeSeaRandom, Pausable {
     function withdrawVSea(uint256 amount) external onlyRole(ADMIN_ROLE) {
         IERC20(vseaAddress).transfer(msg.sender, amount);
     }
+
+    function setVSeaAddress(address _vseaAddress) public onlyRole(ADMIN_ROLE) {
+        vseaAddress = _vseaAddress;
+    }
+
+    // ----------------------------------------------------------------------------
+    // internal
+    // ----------------------------------------------------------------------------
+    /**
+     * @dev Pseudo-random number generator
+     * NOTE: 1 to maxVal, not zero based
+     */
+    function _random(uint256 maxVal) internal returns (uint256) {
+        Extension en = Extension(0x0000000000000000000000457874656E73696F6e);
+        uint256 _blockNumber = block.number;
+        uint256 counter = 5; // How many previous blocks to take into consideration?
+        uint256 s;
+        for (uint256 i = 1; i < counter; i++) {
+            uint256 s1 = uint256(uint160(en.blockSigner((_blockNumber - i))));
+            s = s ^ (s1);
+            uint256 s2 = uint256(en.blockID((_blockNumber - i)));
+            s = s ^ (s2);
+        }
+
+        uint256 result = (s % maxVal) + 1;
+        emit RandomNumber(result);
+        return result;
+    }
+}
+
+abstract contract Extension {
+    function blake2b256(bytes memory data)
+        public
+        view
+        virtual
+        returns (bytes32);
+
+    function blockID(uint256 num) public view virtual returns (bytes32);
+
+    function blockSigner(uint256 num) public view virtual returns (address);
 }
