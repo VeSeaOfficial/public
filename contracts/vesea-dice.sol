@@ -344,7 +344,7 @@ contract VeSeaDice is AccessControl, Pausable {
         uint256 _blockNumber = block.number;
         uint256 counter = 5; // How many previous blocks to take into consideration?
         uint256 s;
-        for (uint256 i = 1; i < counter; i++) {
+        for (uint256 i = 0; i < counter; i++) {
             uint256 s1 = uint256(uint160(en.blockSigner((_blockNumber - i))));
             s = s ^ (s1);
             uint256 s2 = uint256(en.blockID((_blockNumber - i)));
